@@ -9,5 +9,5 @@ variable "region"{
 
 variable "storage_account_name"{
     type = string
-    description = "unique name for the storage account"
+    description = "A unique name for your storage account"
 }
