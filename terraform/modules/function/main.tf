@@ -28,7 +28,7 @@ resource "azurerm_linux_function_app" "proof_function" {
 
   site_config {
     application_stack {
-      python_version = "3.9"   # we’ll use Python for the function
+      python_version = "3.12"   # we’ll use Python for the function
     }
   }
 
