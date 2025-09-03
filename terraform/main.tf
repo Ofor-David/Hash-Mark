@@ -14,3 +14,14 @@ module "function"{
     table_name = module.storage.table_name
     name_prefix = var.name_prefix
 }
+
+module "sp"{
+    source = "./modules/service_principal"
+    resource_group_id = module.storage.resource_group_id
+    subscription_id = var.subscription_id
+}
+
+output "gh_actions_sp_credentials" {
+  value = module.sp.gh_actions_sp_credentials
+  sensitive = true
+}
