@@ -22,7 +22,7 @@ jobs:
       run: |
         python -m venv .venv
         source .venv/bin/activate
-        pip install -r ../../hashmark-func/requirements.txt
+        pip install -r hashmark-func/requirements.txt
 
     - name: Login to Azure
       uses: azure/login@v2
@@ -32,5 +32,5 @@ jobs:
     - name: Deploy to Function App
       uses: azure/functions-action@v1.5.3
       with:
-        app-name: hashmark-func   # your function app name from Terraform
+        app-name: dotcorp-hash-func   # your function app name from Terraform
         package: '../../hashmark-func'  # path to your function app code
