@@ -13,6 +13,7 @@ module "function"{
     storage_account_primary_connection_string = module.storage.storage_account_primary_connection_string
     table_name = module.storage.table_name
     name_prefix = var.name_prefix
+    main_storage_account_id = module.storage.main_storage_account_id
 }
 
 module "sp"{

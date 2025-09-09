@@ -20,3 +20,7 @@ output "table_name"{
     description = "The name of the table"
     value       = azurerm_storage_table.table.name
 }
+
+output "main_storage_account_id"{
+  value = azurerm_storage_account.storage.id
+}
