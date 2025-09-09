@@ -27,3 +27,8 @@ variable "table_name"{
     type = string
     description = "The name of the table"
 }
+
+variable "main_storage_account_id"{
+    type = string
+    description = "The main storage account id"
+}

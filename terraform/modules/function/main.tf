@@ -35,6 +35,6 @@ resource "azurerm_linux_function_app" "proof_function" {
   app_settings = {
     "AzureWebJobsStorage" = var.storage_account_primary_connection_string
     "FUNCTIONS_WORKER_RUNTIME" = "python"
-    "TABLE" = var.table_name
+    "TABLE_NAME" = var.table_name
   }
 }
