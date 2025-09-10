@@ -1,3 +1,4 @@
+from re import search
 import azure.functions as func
 import logging
 import hashlib
@@ -138,16 +139,34 @@ def handle_file_verification(req: func.HttpRequest) -> func.HttpResponse:
             if b"filename=" in part.headers.get(b"Content-Disposition", b""):
                 # It's a file
                 filename = content_disposition.split("filename=")[-1].strip('"')
-                response_lines.append(
-                    f"Got file: {filename}, {len(part.content)} bytes"
+                logging.info(f"Processing uploaded file: {filename}")
+                file_hash = hashlib.sha256(part.content).hexdigest()
+                verification_result = search_hash_in_table(file_hash)
+                
+                # Build response
+                response_data = {
+                    "success": True,
+                    "verification": verification_result,
+                    "request_info": {
+                        "provided_hash": file_hash,
+                        "verification_timestamp": datetime.now().isoformat(),
+                    },
+                }
+
+                return func.HttpResponse(
+                    json.dumps(response_data, indent=2),
+                    status_code=200,
+                    headers={"Content-Type": "application/json"},
                 )
-                # You could save it to disk, blob storage, etc.
+
+                
+            """
             else:
                 # It's a normal form field
                 value = part.text  # decode text
                 name = content_disposition.split("name=")[-1].strip('"')
                 response_lines.append(f"Field {name} = {value}")
-
+ """
         return func.HttpResponse("\n".join(response_lines))
 
     except Exception as e:
