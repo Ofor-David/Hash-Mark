@@ -4,6 +4,7 @@ import hashlib
 from datetime import datetime
 from azure.data.tables import TableServiceClient
 import os
+import json
 
 app = func.FunctionApp()
 
@@ -24,13 +25,10 @@ def main(myblob: func.InputStream):
     # Compute SHA-256 hash
     sha256hash = hashlib.sha256(file_bytes).hexdigest()
     sha3hash = hashlib.sha3_256(file_bytes).hexdigest()
-    hashes = {
-        "sha256": sha256hash,
-        "sha3": sha3hash
-    }
-    
+    hashes = {"sha256": sha256hash, "sha3": sha3hash}
+
     file_info = {"name": myblob.name, "size": myblob.length}
-    
+
     store_hash_record(file_info, hashes)
 
 
@@ -51,7 +49,6 @@ def store_hash_record(file_info, hashes):
             # RowKey: Must be unique within the partition
             # Using timestamp + hash snippet ensures uniqueness
             "RowKey": f"{int(datetime.now().timestamp())}_{hashes['sha256'][:8]}",
-            
             "original_filename": file_info["name"],
             "file_size": file_info["size"],
             "sha256_hash": hashes["sha256"],
@@ -66,3 +63,232 @@ def store_hash_record(file_info, hashes):
         logging.info("Hash record stored successfully.")
     except Exception as e:
         logging.error(f"Error storing hash record: {e}")
+
+
+@app.route(route="verify", methods=["POST"])
+def verify_file(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    HTTP API endpoint for verifying if a file existed at a certain time.
+
+    Accepts two types of requests:
+    1. File upload (multipart/form-data) - we'll hash it and check
+    2. JSON with hash string - we'll check the hash directly
+
+    Why HTTP trigger instead of blob trigger:
+    - Users need to actively request verification
+    - We need to return results immediately to the user
+    - Supports both web interfaces and API integrations
+    """
+
+    try:
+        logging.info("Verification request received")
+
+        # Determine request type based on content
+        content_type = req.headers.get("content-type", "")
+
+        if content_type.startswith("multipart/form-data"):
+            # Handle file upload verification
+            return handle_file_verification(req)
+        elif content_type.startswith("application/json"):
+            # Handle hash-only verification
+            return handle_hash_verification(req)
+        else:
+            # Unsupported content type
+            return func.HttpResponse(
+                json.dumps(
+                    {
+                        "success": False,
+                        "error": "Unsupported content type. Use multipart/form-data for files or application/json for hash strings.",
+                        "supported_types": ["multipart/form-data", "application/json"],
+                    }
+                ),
+                status_code=400,
+                headers={"Content-Type": "application/json"},
+            )
+
+    except Exception as e:
+        logging.error(f"Error in verification endpoint: {str(e)}")
+        return func.HttpResponse(
+            json.dumps(
+                {
+                    "success": False,
+                    "error": "Internal server error occurred during verification",
+                }
+            ),
+            status_code=500,
+            headers={"Content-Type": "application/json"},
+        )
+
+def handle_file_verification(req: func.HttpRequest) -> func.HttpResponse:
+    return func.HttpResponse(
+        json.dumps(
+            {
+                "success": False,
+                "error": "File upload verification not implemented in this version.",
+                "message": "Please use hash-only verification for now.",
+            }
+        ),
+        status_code=501,
+        headers={"Content-Type": "application/json"},
+    )
+
+def handle_hash_verification(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Handle verification when user provides a hash string.
+
+    This is useful when:
+    1. User already knows the hash
+    2. Integrating with other systems
+    3. File is too large to upload again
+    """
+
+    try:
+        logging.info("Processing hash-only verification request")
+        # Parse JSON request body
+        req_body = req.get_json()
+
+        if not req_body or "hash" not in req_body:
+            return func.HttpResponse(
+                json.dumps(
+                    {
+                        "success": False,
+                        "error": "Missing 'hash' field in JSON request body",
+                        "example": {"hash": "abc123..."},
+                    }
+                ),
+                status_code=400,
+                headers={"Content-Type": "application/json"},
+            )
+
+        hash_value = req_body["hash"]
+
+        # Validate hash format (SHA-256 should be 64 hex characters)
+        # Why validate: Prevents unnecessary database queries for invalid hashes
+        if not isinstance(hash_value, str) or len(hash_value) != 64:
+            return func.HttpResponse(
+                json.dumps(
+                    {
+                        "success": False,
+                        "error": "Invalid hash format. SHA-256 hashes should be 64 hexadecimal characters.",
+                        "received_length": (
+                            len(hash_value) if isinstance(hash_value, str) else 0
+                        ),
+                    }
+                ),
+                status_code=400,
+                headers={"Content-Type": "application/json"},
+            )
+
+        logging.info(f"Verifying hash: {hash_value}")
+
+        # Search for the hash in our table
+        verification_result = search_hash_in_table(hash_value)
+
+        # Build response
+        response_data = {
+            "success": True,
+            "verification": verification_result,
+            "request_info": {
+                "provided_hash": hash_value,
+                "verification_timestamp": datetime.now().isoformat(),
+            },
+        }
+
+        return func.HttpResponse(
+            json.dumps(response_data, indent=2),
+            status_code=200,
+            headers={"Content-Type": "application/json"},
+        )
+
+    except Exception as e:
+        logging.error(f"Error handling hash verification: {str(e)}")
+        return func.HttpResponse(
+            json.dumps(
+                {
+                    "success": False,
+                    "error": f"Failed to process hash verification: {str(e)}",
+                }
+            ),
+            status_code=500,
+            headers={"Content-Type": "application/json"},
+        )
+
+
+def search_hash_in_table(hash_value: str) -> dict:
+    """
+    Search for a specific hash in our Azure Table Storage.
+
+    Returns detailed information about the file if found.
+
+    Args:
+        hash_value: The SHA-256 hash to search for
+
+    Returns:
+        dict: Verification results with file details or not-found info
+    """
+
+    try:
+        # Connect to table storage
+        connection_string = os.environ.get("AzureWebJobsStorage")
+        table_name = os.environ.get("TABLE_NAME")
+
+        table_service = TableServiceClient.from_connection_string(connection_string)
+        table_client = table_service.get_table_client(table_name)
+
+        # Search for entities with matching hash
+        # Why filter query: More efficient than downloading all records
+        filter_query = f"sha256_hash eq '{hash_value}'"
+
+        entities = list(table_client.query_entities(filter_query))
+
+        if not entities:
+            # Hash not found in our records
+            return {
+                "exists": False,
+                "message": "This file hash was not found in our records.",
+                "searched_hash": hash_value,
+                "search_timestamp": datetime.now().isoformat(),
+            }
+
+        # File found! Get the first (and should be only) match
+        entity = entities[0]
+
+        # Update verification count
+        # Why track this: Analytics on how often files are verified
+        entity["verification_count"] = int(entity.get("verification_count", 0)) + 1
+        entity["last_verified"] = datetime.now().isoformat()
+
+        try:
+            # Update the entity with new verification count
+            table_client.update_entity(entity, mode="replace")
+        except:
+            # Don't fail verification if we can't update count
+            logging.warning("Failed to update verification count")
+
+        # Return detailed verification results
+        return {
+            "exists": True,
+            "message": "File verified successfully! This file existed in our system.",
+            "file_details": {
+                "original_filename": entity.get("original_filename"),
+                "file_size": entity.get("file_size"),
+                "upload_timestamp": entity.get("upload_timestamp"),
+                "sha256_hash": entity.get("sha256_hash"),
+                "verification_count": entity.get("verification_count", 1),
+                "last_verified": entity.get("last_verified"),
+            },
+            "proof_details": {
+                "partition_key": entity.get("PartitionKey"),
+                "row_key": entity.get("RowKey"),
+                "storage_status": entity.get("status", "verified"),
+            },
+        }
+
+    except Exception as e:
+        logging.error(f"Error searching hash in table: {str(e)}")
+        return {
+            "exists": False,
+            "error": True,
+            "message": "Error occurred while searching for file hash",
+            "details": str(e),
+        }
