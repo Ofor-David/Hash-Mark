@@ -5,10 +5,12 @@ from datetime import datetime
 from azure.data.tables import TableServiceClient
 import os
 import json
+from requests_toolbelt.multipart import decoder
+
 
 app = func.FunctionApp()
 
-
+# Upload blob trigger function
 @app.blob_trigger(
     arg_name="myblob", path="uploads/{name}", connection="AzureWebJobsStorage"
 )
@@ -30,7 +32,6 @@ def main(myblob: func.InputStream):
     file_info = {"name": myblob.name, "size": myblob.length}
 
     store_hash_record(file_info, hashes)
-
 
 # Store the hash in a table
 def store_hash_record(file_info, hashes):
@@ -65,6 +66,7 @@ def store_hash_record(file_info, hashes):
         logging.error(f"Error storing hash record: {e}")
 
 
+# HTTP trigger function for verification
 @app.route(route="verify", methods=["POST"])
 def verify_file(req: func.HttpRequest) -> func.HttpResponse:
     """
@@ -120,17 +122,37 @@ def verify_file(req: func.HttpRequest) -> func.HttpResponse:
         )
 
 def handle_file_verification(req: func.HttpRequest) -> func.HttpResponse:
-    return func.HttpResponse(
-        json.dumps(
-            {
-                "success": False,
-                "error": "File upload verification not implemented in this version.",
-                "message": "Please use hash-only verification for now.",
-            }
-        ),
-        status_code=501,
-        headers={"Content-Type": "application/json"},
-    )
+    try:
+        # Get raw body (bytes)
+        body = req.get_body()
+        content_type = req.headers.get("Content-Type")
+
+        # Decode multipart data
+        multipart_data = decoder.MultipartDecoder(body, content_type)
+
+        response_lines = []
+        for part in multipart_data.parts:
+            # Each part has headers and content
+            content_disposition = part.headers.get(b"Content-Disposition", b"").decode()
+
+            if b"filename=" in part.headers.get(b"Content-Disposition", b""):
+                # It's a file
+                filename = content_disposition.split("filename=")[-1].strip('"')
+                response_lines.append(
+                    f"Got file: {filename}, {len(part.content)} bytes"
+                )
+                # You could save it to disk, blob storage, etc.
+            else:
+                # It's a normal form field
+                value = part.text  # decode text
+                name = content_disposition.split("name=")[-1].strip('"')
+                response_lines.append(f"Field {name} = {value}")
+
+        return func.HttpResponse("\n".join(response_lines))
+
+    except Exception as e:
+        return func.HttpResponse(f"Error: {str(e)}", status_code=400)
+
 
 def handle_hash_verification(req: func.HttpRequest) -> func.HttpResponse:
     """
