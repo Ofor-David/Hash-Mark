@@ -12,6 +12,7 @@ from requests_toolbelt.multipart import decoder
 app = func.FunctionApp()
 
 # Upload blob trigger function
+# TODO: delete blob after hashing
 @app.blob_trigger(
     arg_name="myblob", path="uploads/{name}", connection="AzureWebJobsStorage"
 )
