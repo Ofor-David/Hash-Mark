@@ -13,7 +13,6 @@ from requests_toolbelt.multipart import decoder
 app = func.FunctionApp()
 
 # Upload blob trigger function
-# TODO: refuse file upload if already exists
 @app.blob_trigger(
     arg_name="myblob", path="uploads/{name}", connection="AzureWebJobsStorage"
 )
@@ -33,7 +32,11 @@ def main(myblob: func.InputStream):
     hashes = {"sha256": sha256hash, "sha3": sha3hash}
 
     file_info = {"name": myblob.name, "size": myblob.length}
-
+    # Check if hash already exists in table
+    if search_hash_in_table(sha256hash).get("exists"):
+        logging.info(f"Hash {sha256hash} already exists in table. Deleting blob {myblob.name}.")
+        delete_source_blob(myblob.name.split("/")[-1])
+        return
     store_hash_record(file_info, hashes)
 
 # Store the hash in a table
