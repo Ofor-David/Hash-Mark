@@ -26,3 +26,7 @@ output "gh_actions_sp_credentials" {
   value = module.sp.gh_actions_sp_credentials
   sensitive = true
 }
+output "AzureWebJobsStorage"{
+    value = module.storage.storage_account_primary_connection_string
+    sensitive = true
+}
