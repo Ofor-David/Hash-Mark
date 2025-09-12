@@ -198,6 +198,7 @@ Prerequisites:
 
 Deploy the Function App:
 GitHub Actions (recommended): Builds and publishes on push.
+- Run `terraform output -json gh_actions_sp_credentials` then put the ouput in proper json format and paste into a new github environment secrets: **AZURE_CREDENTIALS**
 
 Environment variables (App Settings):
 
