@@ -4,6 +4,7 @@ import logging
 import hashlib
 from datetime import datetime
 from azure.data.tables import TableServiceClient
+from azure.storage.blob import BlobServiceClient
 import os
 import json
 from requests_toolbelt.multipart import decoder
@@ -12,7 +13,7 @@ from requests_toolbelt.multipart import decoder
 app = func.FunctionApp()
 
 # Upload blob trigger function
-# TODO: delete blob after hashing
+# TODO: refuse file upload if already exists
 @app.blob_trigger(
     arg_name="myblob", path="uploads/{name}", connection="AzureWebJobsStorage"
 )
@@ -44,8 +45,10 @@ def store_hash_record(file_info, hashes):
         )
         table_name = os.environ["TABLE_NAME"]
         table_client = table_service.get_table_client(table_name=table_name)
+        file_name = file_info["name"].split("/")[-1]
 
         entity = {
+            
             # PartitionKey: Groups related records together (improves query performance)
             # Using date allows us to easily query records by day/month
             "PartitionKey": datetime.now().strftime("%Y-%m-%d"),
@@ -60,13 +63,28 @@ def store_hash_record(file_info, hashes):
             "hash_algorithm_version": "1.0",
             "verification_count": 0,
             "status": "verified",
+            "auto_deleted": True, # Indicates if the original blob was auto-deleted after hashing
         }
+        logging.info(f"file name to be deleted is {file_name}")
 
         table_client.create_entity(entity=entity)
+        delete_source_blob(file_name)
         logging.info("Hash record stored successfully.")
     except Exception as e:
         logging.error(f"Error storing hash record: {e}")
 
+def delete_source_blob(blob_name: str):
+    try:
+        connection_string = os.environ["AzureWebJobsStorage"]
+
+        blob_service_client = BlobServiceClient.from_connection_string(connection_string)
+        container_name = "uploads"  # Ensure this matches your blob trigger path
+        blob_client = blob_service_client.get_blob_client(container=container_name, blob=blob_name)
+
+        blob_client.delete_blob()
+        logging.info(f"Source blob '{blob_name}' deleted successfully.")
+    except Exception as e:
+        logging.error(f"Error deleting source blob '{blob_name}': {e}")
 
 # HTTP trigger function for verification
 @app.route(route="verify", methods=["POST"])
